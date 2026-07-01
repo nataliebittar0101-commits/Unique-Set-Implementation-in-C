@@ -1,0 +1,245 @@
+#include <stdio.h>
+
+#define MEMORY_SIZE 1024
+#define WORD_SIZE 12
+#define NUM_REGISTERS 8
+
+// Define the status flags
+#define FLAG_ZERO 0x1
+#define FLAG_EQUAL 0x2
+#define FLAG_OVERFLOW 0x4
+
+// CPU registers
+typedef struct {
+    int data;
+} Register;
+
+// Memory (RAM)
+int memory[MEMORY_SIZE];
+
+// Registers
+Register registers[NUM_REGISTERS];
+
+// Program Counter
+int pc = 0;
+
+// Word status program (PSW)
+int psw = 0;
+
+// Helper function to set the status flags
+void setFlag(int flag) {
+    psw |= flag;
+}
+
+// Helper function to clear the status flags
+void clearFlag(int flag) {
+    psw &= ~flag;
+}
+
+// Helper function to check if a status flag is set
+int isFlagSet(int flag) {
+    return (psw & flag) != 0;
+}
+
+// Helper function to perform two's complement on a number
+int twosComplement(int num) {
+    return (~num) + 1;
+}
+
+// Helper function to read a word from memory
+int readWord(int address) {
+    return memory[address];
+}
+
+// Helper function to write a word to memory
+void writeWord(int address, int word) {
+    memory[address] = word;
+}
+
+// Helper function to fetch the next word from memory and increment the program counter
+int fetchWord() {
+    int word = readWord(pc);
+    pc++;
+    return word;
+}
+
+// Helper function to get the opcode from a word
+int getOpcode(int word) {
+    return (word >> (WORD_SIZE - 8)) & 0xF;
+}
+
+// Helper function to get the addressing mode of the source operand from a word
+int getSourceAddressingMode(int word) {
+    return (word >> 9) & 0x7;
+}
+
+// Helper function to get the addressing mode of the destination operand from a word
+int getDestinationAddressingMode(int word) {
+    return (word >> 6) & 0x7;
+}
+
+// Helper function to get the register index from a word
+int getRegisterIndex(int word) {
+    return (word >> 2) & 0x7;
+}
+
+// Helper function to get the address from a word
+int getAddress(int word) {
+    return word & 0xFFF;
+}
+
+// Main function to execute the instructions
+int main() {
+    // Initialize registers and memory as needed
+
+    // Start executing the program
+    while (1) {
+        int word = fetchWord();
+        int opcode = getOpcode(word);
+        int srcAddressingMode = getSourceAddressingMode(word);
+        int destAddressingMode = getDestinationAddressingMode(word);
+        int srcRegIndex = getRegisterIndex(word);
+        int destRegIndex = srcRegIndex; // Default to the same register for one-operand instructions
+        int srcValue, destValue;
+
+        // Handle different addressing modes and get the operand values
+        switch (srcAddressingMode) {
+            case 0: // Immediate addressing
+                srcValue = twosComplement(getAddress(word));
+                break;
+            case 1: // Direct addressing
+                srcValue = readWord(getAddress(word));
+                break;
+            // Add more addressing modes as needed
+        }
+
+        switch (destAddressingMode) {
+            case 0: // Immediate addressing
+                destValue = twosComplement(getAddress(word));
+                break;
+            case 1: // Direct addressing
+                destValue = readWord(getAddress(word));
+                break;
+            // Add more addressing modes as needed
+        }
+
+        // Execute the opcode based on the fetched word
+        switch (opcode) {
+            case 0: // mov
+                registers[destRegIndex].data = srcValue;
+                break;
+            case 1: // cmp
+                int result = destValue - srcValue;
+                if (result == 0) {
+                    setFlag(FLAG_ZERO);
+                } else {
+                    clearFlag(FLAG_ZERO);
+                }
+                break;
+            // Add more opcodes as needed
+        }
+
+        // Check for stop instruction
+        if (opcode == 15) {
+            break;
+        }
+    }
+
+    // Program finished execution
+    return 0;
+}
+
+/////////////////////////////////////////////////////////////////////////////////
+#include <stdio.h>
+#include <string.h>
+
+// Define the maximum number of macro lines
+#define MAX_MACRO_LINES 100
+
+// Structure to represent a macro
+typedef struct {
+    char name[100];
+    char lines[MAX_MACRO_LINES][100];
+    int num_lines;
+} Macro;
+
+// Function to check if a line is a macro definition
+int is_macro_definition(const char* line) {
+    return (strncmp(line, "mcro", 4) == 0);
+}
+
+// Function to check if a line is an end macro tag
+int is_end_macro(const char* line) {
+    return (strncmp(line, "endmcro", 7) == 0);
+}
+
+// Function to extract the macro name from a macro definition
+void extract_macro_name(const char* line, char* macro_name) {
+    sscanf(line, "mcro %[^\n]", macro_name);
+}
+
+// Function to add a line to a macro
+void add_line_to_macro(Macro* macro, const char* line) {
+    strcpy(macro->lines[macro->num_lines], line);
+    macro->num_lines++;
+}
+
+// Function to process the source file and save the macro definitions
+void process_source_file(FILE* source_file, FILE* output_file) {
+    Macro macros[MAX_MACRO_LINES];
+    int num_macros = 0;
+    int is_macro_active = 0; // Flag to indicate if we are inside a macro definition
+    
+    char line[100];
+    while (fgets(line, sizeof(line), source_file)) {
+        if (is_macro_definition(line)) {
+            is_macro_active = 1;
+            extract_macro_name(line, macros[num_macros].name);
+            macros[num_macros].num_lines = 0;
+        }
+        else if (is_end_macro(line)) {
+            is_macro_active = 0;
+            num_macros++;
+        }
+        else {
+            if (is_macro_active) {
+                add_line_to_macro(&macros[num_macros], line);
+            }
+            else {
+                // If not inside a macro, write the line to the output file as is
+                fputs(line, output_file);
+            }
+        }
+    }
+
+    // Save the macros to the output file in assembly format
+    for (int i = 0; i < num_macros; i++) {
+        fprintf(output_file, "mcro %s\n", macros[i].name);
+        for (int j = 0; j < macros[i].num_lines; j++) {
+            fprintf(output_file, "%s", macros[i].lines[j]);
+        }
+        fprintf(output_file, "endmcro\n");
+    }
+}
+
+int main() {
+    FILE* source_file = fopen("input.asm", "r");
+    if (!source_file) {
+        printf("Failed to open the source file.\n");
+        return 1;
+    }
+
+    FILE* output_file = fopen("output.asm", "w");
+    if (!output_file) {
+        printf("Failed to create the output file.\n");
+        fclose(source_file);
+        return 1;
+    }
+
+    process_source_file(source_file, output_file);
+
+    fclose(source_file);
+    fclose(output_file);
+
+    return 0;
+}
